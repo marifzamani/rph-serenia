@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RPH Serenia</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#5b3fa0">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RPH Serenia">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root { --p:#5b3fa0; --p2:#ede7f8; --bg:#f6f4fb; --card:#fff; --tx:#222; --mu:#777; --bd:#e3dcf2; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--tx); }
+  header { background:var(--p); color:#fff; padding:calc(12px + env(safe-area-inset-top)) 16px 12px; position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:10px; }
+  header h1 { font-size:18px; margin:0; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header button { background:rgba(255,255,255,.2); color:#fff; border:0; border-radius:8px; padding:8px 12px; font-size:14px; cursor:pointer; }
+  main { padding:16px; max-width:820px; margin:0 auto; }
+  .crumb { color:var(--mu); font-size:14px; margin-bottom:12px; }
+  .msg { text-align:center; color:var(--mu); padding:40px 0; }
+
+  /* Kalendar */
+  .cal { max-width:520px; margin:0 auto; background:var(--card); border:1px solid var(--bd); border-radius:14px; padding:12px; }
+  .calhead { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .calhead h2 { flex:1; text-align:center; font-size:18px; margin:0; }
+  .calhead button { background:var(--p2); color:var(--p); border:0; border-radius:8px; width:40px; height:36px; font-size:18px; cursor:pointer; }
+  .calhead button:disabled { opacity:.35; cursor:default; }
+  .calhead select { border:1px solid var(--bd); border-radius:8px; padding:6px; font-size:14px; background:#fff; }
+  .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .dow { text-align:center; font-size:12px; color:var(--mu); padding:4px 0; font-weight:600; }
+  .day { aspect-ratio:1/1; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:15px; color:#bbb; min-height:40px; }
+  .day.has { background:var(--p2); color:var(--p); font-weight:700; cursor:pointer; }
+  .day.has:hover { background:var(--p); color:#fff; }
+  .day.today { outline:2px solid var(--p); }
+  .day small { font-size:10px; font-weight:600; margin-top:2px; }
+  .summary { margin-top:12px; font-size:13px; color:var(--mu); text-align:center; }
+
+  .list { display:grid; gap:8px; }
+  .item { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:12px 14px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .item:hover { border-color:var(--p); }
+  .badge { background:var(--bg); color:var(--p); border-radius:999px; padding:2px 10px; font-size:13px; font-weight:600; }
+  .entry { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:4px 14px; margin-bottom:14px; }
+  .f { padding:10px 0; border-bottom:1px solid var(--bd); }
+  .f:last-child { border-bottom:0; }
+  .f b { display:block; font-size:12px; color:var(--p); text-transform:uppercase; letter-spacing:.03em; margin-bottom:3px; }
+  .f div { white-space:pre-wrap; word-break:break-word; }
+  .f a { color:var(--p); }
+</style>
+</head>
+<body>
+<header>
+  <button id="back" style="display:none" onclick="goBack()">← Kembali</button>
+  <h1>Semakan RPH Serenia</h1>
+  <button onclick="load(true)">Muat semula</button>
+</header>
+<main id="app"><div class="msg">Memuatkan data…</div></main>
+
+<script>
+  var BULAN = ['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'];
+  var HARI = ['Isn','Sel','Rab','Kha','Jum','Sab','Ahd'];
+  var SUM = null, MONTHS = [], state = { view:'cal', ym:null }, DETAIL = {};
+  var API = 'https://script.google.com/macros/s/AKfycbzkxqxU8pgN0Zn_H2vbOsGvcuz9bJ3fuDuAAzoeOfglRYpEa3O4d4G3gxsypBbXRBNn/exec';
+  var app = document.getElementById('app');
+  function api(q){
+    return fetch(API + '?' + q + '&t=' + Date.now()).then(function(r){ return r.json(); }).then(function(d){
+      if (d && d.error) throw new Error(d.error); return d;
+    });
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function linkify(s){ return esc(s).replace(/(https?:\/\/[^\s,]+)/g,'<a href="$1" target="_blank">$1</a>'); }
+  function pad(n){ return (n<10?'0':'')+n; }
+  function niceDate(k){ var p=k.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+  function err(e){ app.innerHTML = '<div class="msg">Ralat: '+esc(e && e.message || e)+'</div>'; }
+
+  function load(force){
+    app.innerHTML = '<div class="msg">Memuatkan data…</div>';
+    if (force) DETAIL = {};
+    api('api=summary' + (force ? '&force=1' : '')).then(function(d){
+      SUM = d;
+      var set = {};
+      Object.keys(SUM).forEach(function(k){ set[k.slice(0,7)] = 1; });
+      MONTHS = Object.keys(set).sort();
+      if (!state.ym || MONTHS.indexOf(state.ym) < 0) {
+        var now = new Date(), cur = now.getFullYear()+'-'+pad(now.getMonth()+1);
+        state.ym = MONTHS.indexOf(cur) >= 0 ? cur : MONTHS[MONTHS.length-1];
+      }
+      render();
+    }).catch(err);
+  }
+
+  function render(){
+    document.getElementById('back').style.display = state.view === 'cal' ? 'none' : '';
+    if (state.view === 'cal') return renderCal();
+    if (state.view === 'gurus') return renderGurus();
+    renderDetail();
+  }
+
+  function renderCal(){
+    if (!state.ym) { app.innerHTML = '<div class="msg">Tiada data.</div>'; return; }
+    var y = +state.ym.slice(0,4), m = +state.ym.slice(5,7);
+    var idx = MONTHS.indexOf(state.ym);
+    var first = new Date(y, m-1, 1), days = new Date(y, m, 0).getDate();
+    var lead = (first.getDay() + 6) % 7; // Isnin = 0
+    var t = new Date(), todayKey = t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());
+
+    var opts = MONTHS.slice().reverse().map(function(ym){
+      return '<option value="'+ym+'"'+(ym===state.ym?' selected':'')+'>'+BULAN[+ym.slice(5,7)-1]+' '+ym.slice(0,4)+'</option>';
+    }).join('');
+
+    var html = '<div class="cal"><div class="calhead">'
+      + '<button onclick="shift(-1)" '+(idx<=0?'disabled':'')+'>‹</button>'
+      + '<h2>'+BULAN[m-1]+' '+y+'</h2>'
+      + '<button onclick="shift(1)" '+(idx>=MONTHS.length-1?'disabled':'')+'>›</button>'
+      + '</div><div style="text-align:center;margin-bottom:10px"><select onchange="state.ym=this.value;render()">'+opts+'</select></div>'
+      + '<div class="grid">';
+    HARI.forEach(function(h){ html += '<div class="dow">'+h+'</div>'; });
+    for (var i=0;i<lead;i++) html += '<div></div>';
+    var totRph = 0, totDays = 0;
+    for (var d=1; d<=days; d++) {
+      var k = state.ym+'-'+pad(d), day = SUM[k];
+      var cls = 'day' + (day?' has':'') + (k===todayKey?' today':'');
+      if (day) {
+        var n = 0; Object.keys(day).forEach(function(g){ n += day[g].length; });
+        totRph += n; totDays++;
+        html += '<div class="'+cls+'" onclick="openDate(\''+k+'\')">'+d+'<small>'+n+' RPH</small></div>';
+      } else {
+        html += '<div class="'+cls+'">'+d+'</div>';
+      }
+    }
+    html += '</div><div class="summary">'+totDays+' hari ada RPH · '+totRph+' RPH bulan ini</div></div>';
+    app.innerHTML = html;
+  }
+
+  function shift(n){ var i = MONTHS.indexOf(state.ym)+n; if (i>=0 && i<MONTHS.length) { state.ym = MONTHS[i]; render(); } }
+
+  function openDate(k){ state = { view:'gurus', ym:state.ym, key:k }; render(); window.scrollTo(0,0); }
+
+  function renderGurus(){
+    var day = SUM[state.key];
+    var html = '<div class="crumb">Tarikh: <b>'+niceDate(state.key)+'</b></div><div class="list">';
+    Object.keys(day).sort().forEach(function(n, i){
+      html += '<div class="item" onclick="openGuru('+i+')"><span>'+esc(n)+'</span><span class="badge">'+day[n].length+'</span></div>';
+    });
+    app.innerHTML = html + '</div>';
+  }
+
+  function openGuru(i){
+    var n = Object.keys(SUM[state.key]).sort()[i];
+    state = { view:'detail', ym:state.ym, key:state.key, guru:n };
+    render(); window.scrollTo(0,0);
+  }
+
+  function renderDetail(){
+    var rows = SUM[state.key][state.guru];
+    var head = '<div class="crumb">'+niceDate(state.key)+' › <b>'+esc(state.guru)+'</b> ('+rows.length+' RPH)</div>';
+    var ck = rows.join(',');
+    var show = function(d){
+      if (state.view !== 'detail' || SUM[state.key][state.guru].join(',') !== ck) return;
+      var html = head;
+      d.rows.forEach(function(r){
+        html += '<div class="entry">';
+        d.headers.forEach(function(h,i){
+          var v = r[i]; if (v === '' || !h) return;
+          html += '<div class="f"><b>'+esc(h)+'</b><div>'+linkify(v)+'</div></div>';
+        });
+        html += '</div>';
+      });
+      app.innerHTML = html;
+    };
+    if (DETAIL[ck]) return show(DETAIL[ck]);
+    app.innerHTML = head + '<div class="msg">Memuatkan butiran…</div>';
+    api('api=rows&r=' + ck).then(function(d){
+      DETAIL[ck] = d; show(DETAIL[ck]);
+    }).catch(err);
+  }
+
+  function goBack(){
+    state = state.view === 'detail' ? { view:'gurus', ym:state.ym, key:state.key } : { view:'cal', ym:state.ym };
+    render();
+  }
+
+  load(false);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+</script>
+</body>
+</html>
